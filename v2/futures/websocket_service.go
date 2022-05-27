@@ -124,6 +124,44 @@ type WsMarkPriceEvent struct {
 // WsMarkPriceHandler handle websocket that pushes price and funding rate for a single symbol.
 type WsMarkPriceHandler func(event *WsMarkPriceEvent)
 
+// WsCombinedMarkPricerServe is similar to WsMarkPriceServe, but it handles multiple symbolx
+func WsCombinedMarkPricerServe(symbols []string, handler WsMarkPriceHandler, errHandler ErrHandler) (doneC, stopC chan struct{}, err error) {
+	endpoint := getCombinedEndpoint()
+	for s := range symbols {
+		endpoint += fmt.Sprintf("%s@markPrice@1s", strings.ToLower(symbols[s])) + "/"
+	}
+	endpoint = endpoint[:len(endpoint)-1]
+
+	cfg := newWsConfig(endpoint)
+	wsHandler := func(message []byte) {
+		j, err := newJSON(message)
+		if err != nil {
+			errHandler(err)
+			return
+		}
+
+		stream := j.Get("stream").MustString()
+		data := j.Get("data").MustMap()
+
+		symbol := strings.Split(stream, "@")[0]
+
+		jsonData, _ := json.Marshal(data)
+
+		event := new(WsMarkPriceEvent)
+		err = json.Unmarshal(jsonData, event)
+		if err != nil {
+			errHandler(err)
+			return
+		}
+		event.Symbol = strings.ToUpper(symbol)
+
+		handler(event)
+	}
+
+	return wsServe(cfg, wsHandler, errHandler)
+}
+
+
 func wsMarkPriceServe(endpoint string, handler WsMarkPriceHandler, errHandler ErrHandler) (doneC, stopC chan struct{}, err error) {
 	cfg := newWsConfig(endpoint)
 	wsHandler := func(message []byte) {
@@ -360,6 +398,43 @@ type WsMarketTickerEvent struct {
 
 // WsMarketTickerHandler handle websocket that pushes 24hr rolling window mini-ticker statistics for a single symbol.
 type WsMarketTickerHandler func(event *WsMarketTickerEvent)
+
+// WsCombinedMarketTickerServe is similar to WsMarketTickerServe, but it handles multiple symbolx
+func WsCombinedMarketTickerServe(symbols []string, handler WsMarketTickerHandler, errHandler ErrHandler) (doneC, stopC chan struct{}, err error) {
+	endpoint := getCombinedEndpoint()
+	for s := range symbols {
+		endpoint += fmt.Sprintf("%s@ticker", strings.ToLower(symbols[s])) + "/"
+	}
+	endpoint = endpoint[:len(endpoint)-1]
+	cfg := newWsConfig(endpoint)
+
+	wsHandler := func(message []byte) {
+		j, err := newJSON(message)
+		if err != nil {
+			errHandler(err)
+			return
+		}
+
+		stream := j.Get("stream").MustString()
+		data := j.Get("data").MustMap()
+
+		symbol := strings.Split(stream, "@")[0]
+
+		jsonData, _ := json.Marshal(data)
+
+		event := new(WsMarketTickerEvent)
+		err = json.Unmarshal(jsonData, event)
+		if err != nil {
+			errHandler(err)
+			return
+		}
+
+		event.Symbol = strings.ToUpper(symbol)
+
+		handler(event)
+	}
+	return wsServe(cfg, wsHandler, errHandler)
+}
 
 // WsMarketTickerServe serve websocket that pushes 24hr rolling window mini-ticker statistics for a single symbol.
 func WsMarketTickerServe(symbol string, handler WsMarketTickerHandler, errHandler ErrHandler) (doneC, stopC chan struct{}, err error) {
